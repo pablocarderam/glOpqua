@@ -1,3 +1,5 @@
+using Revise
+using BenchmarkTools
 using StaticArrays
 using Combinatorics
 using DifferentialEquations
@@ -24,7 +26,21 @@ const MATURED_VEC::Vector{Bool} = [0, 0, 1]
     frac_matured::Float64
 end
 
-function simulate(params::ModelParameters)
+@kwdef struct ModelParametersInner
+    n_strains::Int64
+    n_immunities::Int64
+    n_compartments::Int64
+    immunities_ids::Vector{Vector{Int64}}
+    immunities_dict::Dict{Vector{Int64},Int64}
+    immunities_list::Vector{Vector{Vector{Bool}}}
+    immunities::Array{Bool, 3} # 3 comes from 3 immune states, hardcoded
+    transmission_rate::Float64
+    recovery_rate::Float64
+    frac_imprinted::Float64
+    frac_matured::Float64
+end
+
+function simulate(params::ModelParameters, odeFunc::Function)
     n_strains = params.n_strains
     n_immunities = 3^n_strains # number of types of compartments, i.e. possible immune state combinations
     n_compartments = (n_strains + 1) * n_immunities # n_strains possible infecting strains plus uninfected per each immune compartment type
@@ -35,49 +51,19 @@ function simulate(params::ModelParameters)
     immunities = cat(dims=3, [hcat(compartment...) for compartment in immunities_list]...)
     # Dimensions of this matrix are: immune state (naive, imprinted, matured):strains:host compartment
     # This entire matrix appliers to both uninfected and infected with each strain, so there are (1 + n_strains) as many compartments as dimension 3 of this matrix
-
-    function odeFunc(du, u, p::ModelParameters, t::Float64)
-        # Temp variables for the loop:
-        infected = zeros(n_immunities)
-        naive = 0.0
-        imprinted = 0.0
-        matured = 0.0
-        immunity = zeros(n_strains)
-        for c in 1:n_immunities
-            naive = 0.0
-            imprinted = 0.0
-            matured = 0.0
-            # Calculate totals:
-            for s in 1:n_strains
-                infected[s] = p.transmission_rate * u[c] * sum(@views u[(s*n_immunities+1):((s+1)*n_immunities)])
-
-                # I think immunities_dict[immunities_ids[c]] == c, so instead of u[immunities_dict[immunities_ids[c]]+(s*n_immunities)] in these next three blocks, we do u[c+(s*n_immunities)]
-                if immunities_ids[c][s] == IMPRINTED
-                    immunity = copy(immunities_ids[c])
-                    immunity[s] = 0 # We consider the immune status identical to the current one but with naive in the current strain
-                    imprinted += p.recovery_rate * (p.frac_imprinted * u[immunities_dict[immunity]+(s*n_immunities)] + u[c+(s*n_immunities)])
-                elseif immunities_ids[c][s] == MATURED
-                    immunity = copy(immunities_ids[c])
-                    immunity[s] = 0 # We consider the immune status identical to the current one but with naive in the current strain
-                    matured += p.recovery_rate * (p.frac_matured * u[immunities_dict[immunity]+(s*n_immunities)] + u[c+(s*n_immunities)])
-                elseif immunities_ids[c][s] == NAIVE
-                    naive += p.recovery_rate * (1 - p.frac_imprinted - p.frac_matured) * u[c+(s*n_immunities)]
-                end
-
-
-            end
-            # println((immunities_list[c], immunities_ids[c], immunity, sum(infected), imprinted, p.recovery_rate * u[c+(1*n_immunities)]))
-            # println((immunities_dict[immunity], c, u[immunities_dict[immunity]+(1*n_immunities)], u[c+(1*n_immunities)]))
-
-            # Uninfected compartment for this immunity type:
-            du[c] = -sum(infected) + imprinted + matured + naive #TODO: get rid of sums, use counting vars only
-
-            # Infected compartments for this immunity type:
-            for s in 1:n_strains
-                du[c+(s*n_immunities)] = infected[s] - p.recovery_rate * u[c+(s*n_immunities)]
-            end
-        end
-    end
+    paramsinner = ModelParametersInner(
+        n_strains=n_strains,
+        n_immunities=n_immunities,
+        n_compartments=n_compartments,
+        immunities_ids=immunities_ids,
+        immunities_dict=immunities_dict,
+        immunities_list=immunities_list,
+        immunities=immunities,
+        transmission_rate=params.transmission_rate,
+        recovery_rate=params.recovery_rate,
+        frac_imprinted=params.frac_imprinted,
+        frac_matured=params.frac_matured,
+    )
 
     start_freq = 0.01
     init = zeros(n_compartments)
@@ -87,7 +73,7 @@ function simulate(params::ModelParameters)
     end
 
     tspan = (0.0, 200.0)
-    ode_prob = ODEProblem(odeFunc, init, tspan, params)
+    ode_prob = ODEProblem(odeFunc, init, tspan, paramsinner)
     ode_sol = solve(ode_prob, QNDF(autodiff=false), saveat=0.1)
 
     dat = DataFrame(Tables.table(ode_sol'))
@@ -104,59 +90,43 @@ function simulate(params::ModelParameters)
     return dat_agg
 end
 
-# function odeFunc(du, u, p::ModelParameters, t::Float64)
-#     # Temp variables for the loop:
-#     infected = zeros(n_immunities)
-#     naive = zeros(n_strains)
-#     imprinted = zeros(n_strains)
-#     matured = zeros(n_strains)
-#     immunity = zeros(n_strains)
-#     for c in 1:n_immunities
-#         naive = zeros(n_strains)
-#         imprinted = zeros(n_strains)
-#         matured = zeros(n_strains)
-#         # Calculate totals:
-#         for s in 1:n_strains
-#             infected[s] = p.transmission_rate * u[c] * sum(@views u[(s*n_immunities+1):((s+1)*n_immunities)])
+function odeFunc(du, u, p::ModelParametersInner, t::Float64)
+    # Temp variables for the loop:
+    infected::Vector{Float64} = zeros(Float64,p.n_immunities)
+    immunity::Vector{Int64} = zeros(Int64,p.n_strains)
 
-#             # I think immunities_dict[immunities_ids[c]] == c, so instead of u[immunities_dict[immunities_ids[c]]+(s*n_immunities)] in these next three blocks, we do u[c+(s*n_immunities)]
-#             if immunities_ids[c][s] == IMPRINTED
-#                 immunity = copy(immunities_ids[c])
-#                 immunity[s] = 0 # We consider the immune status identical to the current one but with naive in the current strain
-#                 imprinted[s] = p.recovery_rate * (p.frac_imprinted * u[immunities_dict[immunity]+(s*n_immunities)] + u[c+(s*n_immunities)])
-#             elseif immunities_ids[c][s] == MATURED
-#                 immunity = copy(immunities_ids[c])
-#                 immunity[s] = 0 # We consider the immune status identical to the current one but with naive in the current strain
-#                 matured[s] = p.recovery_rate * (p.frac_matured * u[immunities_dict[immunity]+(s*n_immunities)] + u[c+(s*n_immunities)])
-#             elseif immunities_ids[c][s] == NAIVE
-#                 naive[s] = p.recovery_rate * (1 - p.frac_imprinted - p.frac_matured) * u[c+(s*n_immunities)]
-#             end
+    for c in 1:p.n_immunities
+        naive = 0.0
+        imprinted = 0.0
+        matured = 0.0
+        total_infected = 0
+        # Calculate totals:
+        for s in 1:p.n_strains
+            infected[s] = p.transmission_rate * u[c] * sum(@views u[(s*p.n_immunities+1):((s+1)*p.n_immunities)])
+            total_infected += infected[s]
+            # It should be true that immunities_dict[immunities_ids[c]] == c, so instead of u[immunities_dict[immunities_ids[c]]+(s*n_immunities)] in these next three blocks, we do u[c+(s*n_immunities)]
+            if p.immunities_ids[c][s] == IMPRINTED
+                immunity = copy(p.immunities_ids[c])
+                immunity[s] = 0 # We consider the immune status identical to the current one but with naive in the current strain
+                imprinted += p.recovery_rate * (p.frac_imprinted * u[p.immunities_dict[immunity]+(s*p.n_immunities)] + u[c+(s*p.n_immunities)])
+            elseif p.immunities_ids[c][s] == MATURED
+                immunity = copy(p.immunities_ids[c])
+                immunity[s] = 0 # We consider the immune status identical to the current one but with naive in the current strain
+                matured += p.recovery_rate * (p.frac_matured * u[p.immunities_dict[immunity]+(s*p.n_immunities)] + u[c+(s*p.n_immunities)])
+            elseif p.immunities_ids[c][s] == NAIVE
+                naive += p.recovery_rate * (1 - p.frac_imprinted - p.frac_matured) * u[c+(s*p.n_immunities)]
+            end
+        end
 
+        # Uninfected compartment for this immunity type:
+        du[c] = -total_infected + imprinted + matured + naive
 
-#         end
-#         # println((immunities_list[c], immunities_ids[c], immunity, sum(infected), imprinted, p.recovery_rate * u[c+(1*n_immunities)]))
-#         # println((immunities_dict[immunity], c, u[immunities_dict[immunity]+(1*n_immunities)], u[c+(1*n_immunities)]))
-
-#         # Uninfected compartment for this immunity type:
-#         du[c] = -sum(infected) + sum(imprinted) + sum(matured) + sum(naive) #TODO: get rid of sums, use counting vars only
-
-#         # Infected compartments for this immunity type:
-#         for s in 1:n_strains
-#             du[c+(s*n_immunities)] = infected[s] - p.recovery_rate * u[c+(s*n_immunities)]
-#         end
-#     end
-#     println((sum(du), du))
-# end
-
-# function odeFunc(du, u, p::ModelParameters, t::Float64)
-#     du[1] = -p.transmission_rate * u[1] * sum(@views u[4:6]) + p.recovery_rate * (1 - p.frac_imprinted - p.frac_matured) * u[4]
-#     du[2] = -p.transmission_rate * u[2] * sum(@views u[4:6]) + p.recovery_rate * (p.frac_imprinted) * u[4] + p.recovery_rate * u[5]
-#     du[3] = -p.transmission_rate * u[3] * sum(@views u[4:6]) + p.recovery_rate * (p.frac_matured) * u[4] + p.recovery_rate * u[6]
-#     du[4] = p.transmission_rate * u[1] * sum(@views u[4:6]) - p.recovery_rate * u[4]
-#     du[5] = p.transmission_rate * u[2] * sum(@views u[4:6]) - p.recovery_rate * u[5]
-#     du[6] = p.transmission_rate * u[3] * sum(@views u[4:6]) - p.recovery_rate * u[6]
-#     println((sum(du), du))
-# end
+        # Infected compartments for this immunity type:
+        for s in 1:p.n_strains
+            du[c+(s*p.n_immunities)] = infected[s] - p.recovery_rate * u[c+(s*p.n_immunities)]
+        end
+    end
+end
 
 params = ModelParameters(
     n_strains=6,
@@ -166,7 +136,7 @@ params = ModelParameters(
     frac_matured=0.0, # this will be a map
 )
 
-dat_agg = simulate(params)
+dat_agg = simulate(params,odeFunc)
 plot(dat_agg[:, :t], vcat([dat_agg[:, "Uninfected"]], [dat_agg[:, "Strain_"*string(i)] for i in 1:params.n_strains]), xlabel="Time", ylabel="Number", linewidth=2)
 # plot(ode_sol, xlabel="Time", ylabel="Number", linewidth=2)
 # @benchmark ode_sol = solve(odeFunc, QNDF(), saveat=0.1)
