@@ -20,10 +20,12 @@ const MATURED_VEC::Vector{Bool} = [0, 0, 1]
 
 @kwdef struct ModelParameters
     n_strains::Int64
-    transmission_rate::Float64
+    transmission_rates::Vector{Float64}
     recovery_rate::Float64
     frac_imprinted::Float64
     frac_matured::Float64
+    # immunity_coef::Vector{Vector{Float64}}
+    # mutation_rates::Vector{Vector{Float64}}
 end
 
 @kwdef struct ModelParametersInner
@@ -34,7 +36,7 @@ end
     immunities_dict::Dict{Vector{Int64},Int64}
     immunities_list::Vector{Vector{Vector{Bool}}}
     immunities::Array{Bool, 3} # 3 comes from 3 immune states, hardcoded
-    transmission_rate::Float64
+    transmission_rates::Vector{Float64}
     recovery_rate::Float64
     frac_imprinted::Float64
     frac_matured::Float64
@@ -129,7 +131,7 @@ function odeFunc(du, u, p::ModelParametersInner, t::Float64)
 end
 
 params = ModelParameters(
-    n_strains=6,
+    n_strains=1,
     transmission_rate=0.1,
     recovery_rate=0.05,
     frac_imprinted=1.0, # this will be a map

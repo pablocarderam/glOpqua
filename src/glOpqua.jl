@@ -1,5 +1,8 @@
 module glOpqua
 
-greet() = print("Hello World!")
+include("Parameters.jl")
+include("ODE.jl")
+include("Simulation.jl")
+include("Analysis.jl")
 
 end # module glOpqua
