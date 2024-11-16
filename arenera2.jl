@@ -139,4 +139,4 @@ params = ModelParameters(
 dat_agg = simulate(params,odeFunc)
 plot(dat_agg[:, :t], vcat([dat_agg[:, "Uninfected"]], [dat_agg[:, "Strain_"*string(i)] for i in 1:params.n_strains]), xlabel="Time", ylabel="Number", linewidth=2)
 # plot(ode_sol, xlabel="Time", ylabel="Number", linewidth=2)
-# @benchmark ode_sol = solve(odeFunc, QNDF(), saveat=0.1)
+@benchmark ode_sol = solve(odeFunc, QNDF(), saveat=0.1)
