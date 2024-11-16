@@ -1,6 +1,6 @@
 module glOpqua
 
-include("Parameters.jl")
+include("Setup.jl")
 include("ODE.jl")
 include("Simulation.jl")
 include("Analysis.jl")
