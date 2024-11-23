@@ -49,13 +49,18 @@ function multistrainImprintMature(du, u, p::ModelParameters, t::Float64)
         # Add birth rate to fully naive, uninfected compartment:
         du[1] = du[1] + p.birth_rate_uninfected * u[c]
 
-        # Infected compartments for this immunity type:
         for s in 1:p.n_strains
+            # Infected compartments for this immunity type:
             du[c+(s*p.n_immunities)] = infected[s] - p.recovery_rates[s] * u[c+(s*p.n_immunities)] + imprinted_infected + matured_infected + naive_infected - p.death_rates_infected[s] * u[c+(s*p.n_immunities)]
             # Add birth rate to fully naive, uninfected compartment:
             du[1] = du[1] + p.birth_rates_infected[s] * u[c+(s*p.n_immunities)]
+
+            # Evolutionary risk motes:
+            du[(p.n_strains+1)*p.n_immunities+s] += infected[s] * p.evorisk_coef[(p.immunities_ids[c], s)] # multiply here by risk modifiers, e.g. imprinted vs. matured antigenic escape
+            # if infected[s] > 0 #TODO: figure out why risk is not being calculated correctly
+            #     println((t, du[(p.n_strains+1)*p.n_immunities+s], (p.immunities_ids[c], s), infected[s], p.evorisk_coef[(p.immunities_ids[c], s)]))
+            #     println((t, du[(p.n_strains+1)*p.n_immunities+1:end]))
+            # end
         end
     end
-
-
 end

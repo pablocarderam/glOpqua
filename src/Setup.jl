@@ -23,6 +23,7 @@ const MATURED_VEC::Vector{Bool} = [0, 0, 1]
     frac_imprinted::Dict{Tuple{Vector{Int64},Int64},Float64}
     frac_matured::Dict{Tuple{Vector{Int64},Int64},Float64}
     immunity_coef::Dict{Tuple{Vector{Int64},Int64},Float64}
+    evorisk_coef::Dict{Tuple{Vector{Int64},Int64},Float64}
     birth_rate_uninfected::Float64
     birth_rates_infected::Vector{Float64}
     death_rate_uninfected::Float64
@@ -38,13 +39,14 @@ function parameters(;
     frac_imprinted::Matrix{Float64},
     frac_matured::Matrix{Float64},
     immunity_coef::Matrix{Float64},
+    evorisk_coef::Array{Float64,3},
     birth_rate_uninfected::Float64,
     birth_rates_infected::Vector{Float64},
     death_rate_uninfected::Float64,
     death_rates_infected::Vector{Float64},)
 
     n_immunities = 3^n_strains # number of types of compartments, i.e. possible immune state combinations
-    n_compartments = (n_strains + 1) * n_immunities # n_strains possible infecting strains plus uninfected per each immune compartment type
+    n_compartments = (n_strains + 1) * n_immunities + n_strains # n_strains possible infecting strains plus uninfected per each immune compartment type, plus one compartment per strain for evorisk motes
 
     immunities_ids = reduce(vcat, collect(multiset_permutations(i, n_strains)) for i in with_replacement_combinations([NAIVE, IMPRINTED, MATURED], n_strains))
     immunities_dict = Dict{Vector{Int64},Int64}(zip(immunities_ids, collect(1:n_immunities)))
@@ -56,14 +58,17 @@ function parameters(;
     immunity_coef_by_state = Dict{Tuple{Vector{Int64},Int64},Float64}()
     frac_imprinted_by_state = Dict{Tuple{Vector{Int64},Int64},Float64}()
     frac_matured_by_state = Dict{Tuple{Vector{Int64},Int64},Float64}()
+    evorisk_by_state = Dict{Tuple{Vector{Int64},Int64},Float64}()
     for id in immunities_ids
         for s in 1:n_strains
-            max_immunity_to_s = 0
-            max_frac_matured = 0 # if no immunity, de novo immunity is imprinted
-            corresp_frac_imprinted = 1 # if no immunity, de novo immunity is imprinted
+            max_immunity_to_s = 0.0
+            max_frac_matured = 0.0 # if no immunity, de novo immunity is imprinted
+            corresp_frac_imprinted = 1.0 # if no immunity, de novo immunity is imprinted
+            evorisk = 1.0 # if no immunity, evorisk is same as usual
             for i in 1:n_strains
                 if id[i] > 0 && immunity_coef[i, s] > max_immunity_to_s
                     max_immunity_to_s = immunity_coef[i, s]
+                    evorisk = evorisk_coef[i, s, id[i]]
                 end
                 if id[i] > 0 && frac_matured[i, s] > max_frac_matured
                     max_frac_matured = frac_matured[i, s]
@@ -73,6 +78,7 @@ function parameters(;
             immunity_coef_by_state[(id, s)] = 1 - max_immunity_to_s
             frac_matured_by_state[(id, s)] = max_frac_matured
             frac_imprinted_by_state[(id, s)] = corresp_frac_imprinted
+            evorisk_by_state[(id, s)] = evorisk
         end
     end
 
@@ -91,6 +97,7 @@ function parameters(;
         frac_imprinted=frac_imprinted_by_state,
         frac_matured=frac_matured_by_state,
         immunity_coef=immunity_coef_by_state,
+        evorisk_coef=evorisk_by_state,
         birth_rate_uninfected=birth_rate_uninfected,
         birth_rates_infected=birth_rates_infected,
         death_rate_uninfected=death_rate_uninfected,

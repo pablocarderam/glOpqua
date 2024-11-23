@@ -4,11 +4,12 @@ using Plots
 using LinearAlgebra
 using BenchmarkTools
 
-n_strains = 7
+n_strains = 2
 
 #TODO: add antigenic mapping that based on distance map (or pairwise distances),
 
-# computes pairwise distances (if necessary), cross-immunities, and imprinting and maturation fractions.
+# Computes pairwise distances (if necessary), evolutionary risk motes, cross-immunities, and imprinting and maturation fractions.
+
 immunity_coef = [
     # This tracks strain cross immunity (self immunity is on diagonal).
     # Row number (first index) is pre-existing immunity to that number strain,
@@ -18,6 +19,26 @@ immunity_coef = [
 ]
 # or
 immunity_coef = Matrix{Float64}(I, n_strains, n_strains)
+
+evorisk_coef = ones(2, 2, 2)
+evorisk_coef[:, :, glOpqua.IMPRINTED] = [
+    # This tracks evolutionary risk motes for imprinted immunity.
+    # Row number (first index) is pre-existing immunity to that number strain,
+    # columns are number of infecting strain.
+    10.0 1.0
+    1.0 10.0
+]
+evorisk_coef[:, :, glOpqua.MATURED] = [
+    # This tracks evolutionary risk motes for affinity matured immunity.
+    # Row number (first index) is pre-existing immunity to that number strain,
+    # columns are number of infecting strain.
+    20.0 1.0
+    1.0 20.0
+]
+# or
+evorisk_coef = ones(n_strains, n_strains, 2)
+evorisk_coef[:, :, glOpqua.IMPRINTED] = evorisk_coef[:, :, glOpqua.IMPRINTED] + 0.0 * Matrix{Float64}(I, n_strains, n_strains)
+evorisk_coef[:, :, glOpqua.MATURED] = evorisk_coef[:, :, glOpqua.MATURED] + 0.0 * Matrix{Float64}(I, n_strains, n_strains)
 
 frac_imprinted = [
     # This tracks likelihood of developing an imprinted response to a new strain given
@@ -59,6 +80,7 @@ parameters = glOpqua.parameters(
     frac_imprinted=frac_imprinted,
     frac_matured=frac_matured,
     immunity_coef=immunity_coef,
+    evorisk_coef=evorisk_coef,
     birth_rate_uninfected=0.01,
     birth_rates_infected=repeat([0.01], outer=n_strains),
     death_rate_uninfected=0.01,
@@ -78,7 +100,7 @@ tspan = (0.0, 200.0)
 # Simulation
 ode_sol = glOpqua.simulate(parameters, init, tspan)
 
-@benchmark ode_sol_bm = glOpqua.simulate(parameters, init, tspan)
+# @benchmark ode_sol_bm = glOpqua.simulate(parameters, init, tspan)
 
 # Data processing
 dat_agg = glOpqua.dataByStrain(ode_sol, parameters)
@@ -87,6 +109,14 @@ plot(
     vcat([dat_agg[:, "Uninfected"]], [dat_agg[:, "Strain_"*string(i)] for i in 1:parameters.n_strains]),
     xlabel="Time", ylabel="Number", linewidth=2,
     labels=reshape(vcat(["Uninfected"], ["Strain " * string(i) for i in 1:parameters.n_strains]), 1, 1 + parameters.n_strains),
+)
+
+dat_evo = glOpqua.evoriskData(ode_sol, parameters)
+plot(
+    dat_evo[:, :t],
+    vcat([dat_evo[:, "Strain_"*string(i)] for i in 1:parameters.n_strains]),
+    xlabel="Time", ylabel="Number", linewidth=2,
+    labels=reshape(vcat(["Strain " * string(i) for i in 1:parameters.n_strains]), 1, parameters.n_strains),
 )
 
 plot(
