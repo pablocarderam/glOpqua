@@ -64,11 +64,11 @@ function parameters(;
             max_immunity_to_s = 0.0
             max_frac_matured = 0.0 # if no immunity, de novo immunity is imprinted
             corresp_frac_imprinted = 1.0 # if no immunity, de novo immunity is imprinted
-            evorisk = 1.0 # if no immunity, evorisk is same as usual
+            evorisk = evorisk_coef[s, s, 1] # if no immunity, evorisk is pulled from naive layer of array
             for i in 1:n_strains
                 if id[i] > 0 && immunity_coef[i, s] > max_immunity_to_s
                     max_immunity_to_s = immunity_coef[i, s]
-                    evorisk = evorisk_coef[i, s, id[i]]
+                    evorisk = evorisk_coef[i, s, id[i]+1]
                 end
                 if id[i] > 0 && frac_matured[i, s] > max_frac_matured
                     max_frac_matured = frac_matured[i, s]

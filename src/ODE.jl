@@ -5,6 +5,11 @@ function multistrainImprintMature(du, u, p::ModelParameters, t::Float64)
     immunity_imprinted::Vector{Int64} = zeros(Int64, p.n_strains)
     immunity_matured::Vector{Int64} = zeros(Int64, p.n_strains)
 
+    # Reset these trackers
+    for s in 1:p.n_strains
+        du[(p.n_strains+1)*p.n_immunities+s] = 0.0
+    end
+
     # Loop through all immune types of compartments
     for c in 1:p.n_immunities
         naive_uninfected = 0.0
@@ -56,11 +61,7 @@ function multistrainImprintMature(du, u, p::ModelParameters, t::Float64)
             du[1] = du[1] + p.birth_rates_infected[s] * u[c+(s*p.n_immunities)]
 
             # Evolutionary risk motes:
-            du[(p.n_strains+1)*p.n_immunities+s] += infected[s] * p.evorisk_coef[(p.immunities_ids[c], s)] # multiply here by risk modifiers, e.g. imprinted vs. matured antigenic escape
-            # if infected[s] > 0 #TODO: figure out why risk is not being calculated correctly
-            #     println((t, du[(p.n_strains+1)*p.n_immunities+s], (p.immunities_ids[c], s), infected[s], p.evorisk_coef[(p.immunities_ids[c], s)]))
-            #     println((t, du[(p.n_strains+1)*p.n_immunities+1:end]))
-            # end
+            du[(p.n_strains+1)*p.n_immunities+s] += p.transmission_rates[s] * p.evorisk_coef[(p.immunities_ids[c], s)] * u[c] * sum(@views u[(s*p.n_immunities+1):((s+1)*p.n_immunities)])
         end
     end
 end
