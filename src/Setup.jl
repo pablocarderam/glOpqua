@@ -8,6 +8,10 @@ const NAIVE_VEC::Vector{Bool} = [1, 0, 0]
 const IMPRINTED_VEC::Vector{Bool} = [0, 1, 0]
 const MATURED_VEC::Vector{Bool} = [0, 0, 1]
 
+function hillFunction(distance::Float64, K::Float64, h::Float64)
+    return distance^h / (K^h + distance^h)
+end
+
 @kwdef struct ModelParameters
     n_strains::Int64
     n_immunities::Int64
