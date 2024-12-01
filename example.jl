@@ -51,26 +51,27 @@ parameters = glOpqua.parameters(
     frac_matured=ag_map.frac_matured,
     immunity_coef=ag_map.immunity_coef,
     evorisk_coef=evo_map.evorisk_coef,
-    birth_rate_uninfected=0.01,
-    birth_rates_infected=[repeat([0.01], outer=n_strains[i]) for i in 1:n_ag_clusters],
-    death_rate_uninfected=0.01,
-    death_rates_infected=[repeat([0.01], outer=n_strains[i]) for i in 1:n_ag_clusters],)
+    birth_rate_uninfected=0.001,
+    birth_rates_infected=[repeat([0.001], outer=n_strains[i]) for i in 1:n_ag_clusters],
+    death_rate_uninfected=0.001,
+    death_rates_infected=[repeat([0.001], outer=n_strains[i]) for i in 1:n_ag_clusters],)
 
 # Initial conditions
 start_freq = 0.01
+strain_dist = 9.0 * 10.0 .^ (-1.0 * collect(1.0:sum(n_strains)))
 init = zeros(parameters.n_compartments)
 init[1] = 1.0 - (start_freq * sum(parameters.n_strains))
 for i in 1:sum(parameters.n_strains)
-    init[i*parameters.n_immunities+1] = start_freq
+    init[i*parameters.n_immunities+1] = start_freq * strain_dist[i]
     init[(sum(parameters.n_strains)+1)*parameters.n_immunities+i] = start_freq * parameters.evorisk_coef[(repeat([glOpqua.NAIVE], outer=parameters.n_ag_clusters), i)]
 end
 
 # Time
-tspan = (0.0, 200.0)
+tspan = (0.0, 2000.0)
 
 # Simulation
 #TODO: add piecewise ODE with stochastic strain appearance and extinction
-ode_sol = glOpqua.simulate(parameters, init, tspan)
+ode_sol = glOpqua.simulate(parameters, init, tspan, saveat=1)
 # ode_sol = glOpqua.simulate(parameters, init, tspan, solver="QNDF")
 # @benchmark ode_sol_bm = glOpqua.simulate(parameters, init, tspan)
 
@@ -91,8 +92,8 @@ plot(
     labels=reshape(vcat(["Uninfected"], ["Strain " * string(i) for i in 1:sum(parameters.n_strains)]), 1, 1 + sum(parameters.n_strains)),
 )
 
-# plot(
-#     ode_sol,
-#     xlabel="Time", ylabel="Number", linewidth=2,
-#     # labels=reshape(vcat(["Uninfected"],["Strain "*string(i) for i in 1:parameters.n_ag_clusters]), 1, 1+parameters.n_ag_clusters),
-# )
+plot(
+    ode_sol,
+    xlabel="Time", ylabel="Number", linewidth=2, ylimits=(0, 1)
+    # labels=reshape(vcat(["Uninfected"],["Strain "*string(i) for i in 1:parameters.n_ag_clusters]), 1, 1+parameters.n_ag_clusters),
+)

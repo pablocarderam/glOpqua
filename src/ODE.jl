@@ -15,10 +15,13 @@ function multistrainImprintMature(du, u, p::ModelParameters, t::Float64)
         naive_uninfected = 0.0
         imprinted_uninfected = 0.0
         matured_uninfected = 0.0
-        naive_infected = 0.0
-        imprinted_infected = 0.0
-        matured_infected = 0.0
+        naive_infected_gained = 0.0
+        imprinted_infected_lost = 0.0
+        matured_infected_lost = 0.0
         total_infected = 0.0
+        imprinted_lost = 0.0
+        matured_lost = 0.0
+        naive_gained = 0.0
 
         # Calculate totals:
         strain_num = 0
@@ -32,29 +35,32 @@ function multistrainImprintMature(du, u, p::ModelParameters, t::Float64)
                 if p.immunities_ids[c][a] == IMPRINTED
                     immunity_naive = copy(p.immunities_ids[c])
                     immunity_naive[a] = NAIVE # We consider the immune status identical to the current one but with naive in the current strain
-                    imprinted_uninfected += -p.imprinted_loss_rate * u[c] + p.recovery_rates[a][s] * (p.frac_imprinted[(p.immunities_ids[c], a)] * u[p.immunities_dict[immunity_naive]+(strain_num*p.n_immunities)] + u[c+(strain_num*p.n_immunities)])
+                    imprinted_uninfected += p.recovery_rates[a][s] * (p.frac_imprinted[(p.immunities_ids[c], a)] * u[p.immunities_dict[immunity_naive]+(strain_num*p.n_immunities)] + u[c+(strain_num*p.n_immunities)])
 
-                    imprinted_infected += -p.imprinted_loss_rate * u[c+(strain_num*p.n_immunities)]
+                    imprinted_lost += p.imprinted_loss_rate * (1.0 / p.n_strains[a]) * u[c]
+                    imprinted_infected_lost += p.imprinted_loss_rate * u[c+(strain_num*p.n_immunities)]
                 elseif p.immunities_ids[c][a] == MATURED
                     immunity_naive = copy(p.immunities_ids[c])
                     immunity_naive[a] = NAIVE # We consider the immune status identical to the current one but with naive in the current strain
-                    matured_uninfected += -p.matured_loss_rate * u[c] + p.recovery_rates[a][s] * (p.frac_matured[(p.immunities_ids[c], a)] * u[p.immunities_dict[immunity_naive]+(strain_num*p.n_immunities)] + u[c+(strain_num*p.n_immunities)])
+                    matured_uninfected += p.recovery_rates[a][s] * (p.frac_matured[(p.immunities_ids[c], a)] * u[p.immunities_dict[immunity_naive]+(strain_num*p.n_immunities)] + u[c+(strain_num*p.n_immunities)])
 
-                    matured_infected += -p.matured_loss_rate * u[c+(strain_num*p.n_immunities)]
+                    matured_lost += p.matured_loss_rate * (1.0 / p.n_strains[a]) * u[c]
+                    matured_infected_lost += p.matured_loss_rate * u[c+(strain_num*p.n_immunities)]
                 elseif p.immunities_ids[c][a] == NAIVE
                     immunity_imprinted = copy(p.immunities_ids[c])
                     immunity_imprinted[a] = IMPRINTED # We consider the immune status identical to the current one but with imprinted in the current strain
                     immunity_matured = copy(p.immunities_ids[c])
                     immunity_matured[a] = MATURED # We consider the immune status identical to the current one but with naive in the current strain
-                    naive_uninfected += p.imprinted_loss_rate * u[p.immunities_dict[immunity_imprinted]] + p.imprinted_loss_rate * u[p.immunities_dict[immunity_matured]] + p.recovery_rates[a][s] * (1 - p.frac_imprinted[(p.immunities_ids[c], a)] - p.frac_matured[(p.immunities_ids[c], a)]) * u[c+(strain_num*p.n_immunities)]
+                    naive_uninfected += p.recovery_rates[a][s] * (1 - p.frac_imprinted[(p.immunities_ids[c], a)] - p.frac_matured[(p.immunities_ids[c], a)]) * u[c+(strain_num*p.n_immunities)]
 
-                    naive_infected += p.imprinted_loss_rate * u[p.immunities_dict[immunity_imprinted]+(strain_num*p.n_immunities)] + p.imprinted_loss_rate * u[p.immunities_dict[immunity_matured]+(strain_num*p.n_immunities)]
+                    naive_gained += (1.0 / p.n_strains[a]) * (p.imprinted_loss_rate * u[p.immunities_dict[immunity_imprinted]] + p.matured_loss_rate * u[p.immunities_dict[immunity_matured]])
+                    naive_infected_gained += p.imprinted_loss_rate * u[p.immunities_dict[immunity_imprinted]+(strain_num*p.n_immunities)] + p.matured_loss_rate * u[p.immunities_dict[immunity_matured]+(strain_num*p.n_immunities)]
                 end
             end
         end
 
         # Uninfected compartment for this immunity type:
-        du[c] = -total_infected + imprinted_uninfected + matured_uninfected + naive_uninfected - p.death_rate_uninfected * u[c]
+        du[c] = -total_infected + imprinted_uninfected + matured_uninfected + naive_uninfected - imprinted_lost - matured_lost + naive_gained - p.death_rate_uninfected * u[c]
 
         # Add birth rate to fully naive, uninfected compartment:
         du[1] = du[1] + p.birth_rate_uninfected * u[c]
@@ -64,7 +70,7 @@ function multistrainImprintMature(du, u, p::ModelParameters, t::Float64)
             for s in 1:p.n_strains[a]
                 strain_num += 1
                 # Infected compartments for this immunity type:
-                du[c+(strain_num*p.n_immunities)] = infected[strain_num] - p.recovery_rates[a][s] * u[c+(strain_num*p.n_immunities)] + imprinted_infected + matured_infected + naive_infected - p.death_rates_infected[a][s] * u[c+(strain_num*p.n_immunities)]
+                du[c+(strain_num*p.n_immunities)] = infected[strain_num] - p.recovery_rates[a][s] * u[c+(strain_num*p.n_immunities)] - imprinted_infected_lost - matured_infected_lost + naive_infected_gained - p.death_rates_infected[a][s] * u[c+(strain_num*p.n_immunities)]
                 # Add birth rate to fully naive, uninfected compartment:
                 du[1] = du[1] + p.birth_rates_infected[a][s] * u[c+(strain_num*p.n_immunities)]
 
