@@ -22,7 +22,6 @@ end
     immunities_ids::Vector{Vector{Int64}}
     immunities_dict::Dict{Vector{Int64},Int64}
     immunities_list::Vector{Vector{Vector{Bool}}}
-    # immunities::Array{Bool,N_IMMUNE_STATES}
     transmission_rates::Vector{Vector{Float64}}
     recovery_rates::Vector{Vector{Float64}}
     imprinted_loss_rate::Float64
@@ -60,63 +59,33 @@ function parameters(;
     immunities_ids = reduce(vcat, collect(multiset_permutations(i, n_ag_clusters)) for i in with_replacement_combinations([NAIVE, IMPRINTED, MATURED], n_ag_clusters))
     immunities_dict = Dict{Vector{Int64},Int64}(zip(immunities_ids, collect(1:n_immunities)))
     immunities_list = reduce(vcat, collect(multiset_permutations(i, n_ag_clusters)) for i in with_replacement_combinations([NAIVE_VEC, IMPRINTED_VEC, MATURED_VEC], n_ag_clusters))
-    println(length(immunities_list))
-    # immunities = cat(dims=3, [hcat(compartment...) for compartment in immunities_list]...)
-    println("Out")
-    # Dimensions of this matrix are: immune state (naive, imprinted, matured):strains:host compartment
-    # This entire matrix appliers to both uninfected and infected with each strain, so there are (1 + n_strains) as many compartments as dimension 3 of this matrix
 
     immunity_coef_by_state = Dict{Tuple{Vector{Int64},Int64},Float64}()
     frac_imprinted_by_state = Dict{Tuple{Vector{Int64},Int64},Float64}()
     frac_matured_by_state = Dict{Tuple{Vector{Int64},Int64},Float64}()
     evorisk_by_state = Dict{Tuple{Vector{Int64},Int64},Float64}()
-    ag_cluster_s = 1
-    cluster_counter_s = 0
-    ag_cluster_i = 1
-    cluster_counter_i = 0
     for id in immunities_ids
-        for s in 1:n_ag_clusters
-            max_immunity_to_s = 0.0
+        for c in 1:n_ag_clusters # c is infecting cluster
+            max_i = 1
+            max_immunity_to_c = 0.0
             max_frac_matured = 0.0 # if no immunity, de novo immunity is imprinted
             corresp_frac_imprinted = 1.0 # if no immunity, de novo immunity is imprinted
-            for i in 1:n_ag_clusters
-                if id[i] > 0 && immunity_coef[i, s] > max_immunity_to_s
-                    max_immunity_to_s = immunity_coef[i, s]
+            for i in 1:n_ag_clusters # i is immune cluster
+                if id[i] > 0 && immunity_coef[i, c] > max_immunity_to_c
+                    max_immunity_to_c = immunity_coef[i, c]
+                    max_i = i
                 end
-                if id[i] > 0 && frac_matured[i, s] > max_frac_matured
-                    max_frac_matured = frac_matured[i, s]
-                    corresp_frac_imprinted = frac_imprinted[i, s]
-                end
-            end
-            immunity_coef_by_state[(id, s)] = 1 - max_immunity_to_s
-            frac_matured_by_state[(id, s)] = max_frac_matured
-            frac_imprinted_by_state[(id, s)] = corresp_frac_imprinted
-        end
-
-        ag_cluster_s = 1
-        cluster_counter_s = 0
-        for s in 1:total_n_strains
-            cluster_counter_s += 1
-            if cluster_counter_s > n_strains[ag_cluster_s]
-                ag_cluster_s += 1
-                cluster_counter_s = 0
-            end
-            max_immunity_to_s = 0.0
-            evorisk = evorisk_coef[s, s, 1] # if no immunity to this strain's antigenic cluster, evorisk is pulled from naive layer of array
-            ag_cluster_i = 1
-            cluster_counter_i = 0
-            for i in 1:total_n_strains
-                cluster_counter_i += 1
-                if cluster_counter_i > n_strains[ag_cluster_i]
-                    ag_cluster_i += 1
-                    cluster_counter_i = 0
-                elseif id[ag_cluster_i] > 0 && immunity_coef[ag_cluster_i, ag_cluster_s] > max_immunity_to_s
-                    max_immunity_to_s = immunity_coef[ag_cluster_i, ag_cluster_s]
-                    evorisk = evorisk_coef[i, s, id[ag_cluster_s]+1]
-                    # evorisk is determined by strongest immune reaction to this strain's antigenic cluster
+                if id[i] > 0 && frac_matured[i, c] > max_frac_matured
+                    max_frac_matured = frac_matured[i, c]
+                    corresp_frac_imprinted = frac_imprinted[i, c]
                 end
             end
-            evorisk_by_state[(id, s)] = evorisk
+            immunity_coef_by_state[(id, c)] = 1 - max_immunity_to_c
+            frac_matured_by_state[(id, c)] = max_frac_matured
+            frac_imprinted_by_state[(id, c)] = corresp_frac_imprinted
+            for s in sum(n_strains[begin:c-1])+1:sum(n_strains[begin:c])
+                evorisk_by_state[(id, s)] = evorisk_coef[max_i, s, id[max_i]+1]
+            end
         end
     end
 
@@ -128,7 +97,6 @@ function parameters(;
         immunities_ids=immunities_ids,
         immunities_dict=immunities_dict,
         immunities_list=immunities_list,
-        # immunities=immunities,
         transmission_rates=transmission_rates,
         recovery_rates=recovery_rates,
         imprinted_loss_rate=imprinted_loss_rate,

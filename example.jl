@@ -5,8 +5,6 @@ using LinearAlgebra
 using BenchmarkTools
 
 n_ag_space_dimensions = 2
-n_gen_space_dimensions = 2
-# The number of dimensions of antigenic and genetic space does not need to be equal.
 
 n_ag_clusters = 5
 # =8 takes 13.78 s, =9 takes 130.99 s to solve for time=200
@@ -16,9 +14,6 @@ n_strains = ones(Int, n_ag_clusters)#[1,2,2,1]
 
 ag_cluster_positions = zeros(n_ag_clusters, n_ag_space_dimensions)
 ag_cluster_positions[:, end] .+= 10.0 .* collect(1:n_ag_clusters)
-
-strain_positions = zeros(sum(n_strains), n_gen_space_dimensions)
-strain_positions[:, end] .+= 10.0 .* collect(1:sum(n_strains))
 
 # Compute pairwise distances, cross-immunities, and imprinting and maturation fractions.
 ag_map = glOpqua.antigenicMap(
@@ -34,12 +29,14 @@ ag_map = glOpqua.antigenicMap(
     h_matured=2.0,)
 
 # Evolutionary risk motes
+evorisk_by_immunity = ones(glOpqua.N_IMMUNE_STATES, sum(n_strains)) .* 1.0
+evorisk_by_immunity[glOpqua.NAIVE+1, :] = zeros(sum(n_strains))
 evo_map = glOpqua.evoRiskMap(
-    positions=strain_positions,
+    ag_distances=ag_map.distances,
     K_evorisk=0.5 .* ones(glOpqua.N_IMMUNE_STATES),
     h_evorisk=5.0 .* ones(glOpqua.N_IMMUNE_STATES),
-    naive_evorisk=ones(sum(n_strains)) .* 0.0,
-    imprinted_matured_evorisk=ones(sum(n_strains), glOpqua.N_IMMUNE_STATES - 1) .* 1.0,)
+    evorisk_by_immunity=evorisk_by_immunity,
+    strains_per_cluster=n_strains)
 
 # Parameters
 #TODO: add option for single immune compartment type and just using evorisk to track impact of imprinted vs matured??? nah this doesn't work
