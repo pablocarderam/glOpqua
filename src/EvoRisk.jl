@@ -1,5 +1,6 @@
 using Distances
 using LinearAlgebra
+using Random
 
 @kwdef struct EvoRiskMap
     K_evorisk::Vector{Float64}
@@ -11,8 +12,10 @@ using LinearAlgebra
     # 3. inoculum bottleneck effects
     # 4. stochastic extinction/survival probability before getting to deterministic epidemiological dynamic threshold
     evorisk_by_immunity::Matrix{Float64}
+    strains_per_cluster::Vector{Int64}
 
     evorisk_coef::Array{Float64,3}
+    #TODO: we need a separate evorisk_coef array for (non-cluster) strain evolution, or to specify the breakdown of cluster vs. non-cluster
 end
 
 function evorisk(evorisk_by_immunity::Matrix{Float64}, K_evorisk::Vector{Float64}, h_evorisk::Vector{Float64}, ag_distances::Matrix{Float64}, strains_per_cluster::Vector{Int64})
@@ -65,7 +68,8 @@ function evoRiskMap(;
     K_evorisk::Vector{Float64},
     h_evorisk::Vector{Float64},
     evorisk_by_immunity::Matrix{Float64},
-    strains_per_cluster::Vector{Int64},)
+    strains_per_cluster::Vector{Int64},
+)
 
     evorisk_coef = evorisk(evorisk_by_immunity, K_evorisk, h_evorisk, ag_distances, strains_per_cluster)
 
@@ -74,7 +78,100 @@ function evoRiskMap(;
         h_evorisk=h_evorisk,
         evorisk_by_immunity=evorisk_by_immunity,
         ag_distances=ag_distances,
-        evorisk_coef=evorisk_coef,)
+        evorisk_coef=evorisk_coef,
+        strains_per_cluster=strains_per_cluster,
+    )
 
     return map
+end
+
+function copyEvoRiskMap(p::EvoRiskMap)
+    return evoRiskMap(
+        ag_distances=p.ag_distances,
+        K_evorisk=p.K_evorisk,
+        h_evorisk=p.h_evorisk,
+        evorisk_by_immunity=p.evorisk_by_immunity,
+        strains_per_cluster=p.strains_per_cluster,
+    )
+end
+
+function sampleInfection(sol, p::ModelParameters, ag::AntigenicMap)
+    u = sol.u[end]
+    rates = zeros(size(sol.u[end])[1] * 2)#p.n_immunities * sum(p.n_strains) * 2)
+    ids = [(zeros(p.n_ag_clusters), zeros(size(ag.positions)[2]), 0, 0, false) for _ in rates]
+    # Loop through all immune types of compartments
+    for c in 1:p.n_immunities
+        strain_num = 0
+        for a in 1:p.n_ag_clusters
+            for s in 1:p.n_strains[a]
+                strain_num += 1
+                # Evolutionary risk motes:
+                # New cluster:
+                rates[c+(strain_num*p.n_immunities)] = p.transmission_rates[a][s] * p.evorisk_coef[(p.immunities_ids[c], strain_num)] * u[c] * sum(@views u[(strain_num*p.n_immunities+1):((strain_num+1)*p.n_immunities)])
+                ids[c+(strain_num*p.n_immunities)] = (p.immunities_ids[c], ag.positions[a,:], a, s, false)
+                # New strain in old cluster:
+                # println((size(sol.u[end]), strain_num, c + (strain_num * p.n_immunities), c + (strain_num * p.n_immunities) + (p.n_immunities * sum(p.n_strains))))
+                rates[c+(strain_num*p.n_immunities)+(p.n_immunities*sum(p.n_strains))] = 0.0*p.transmission_rates[a][s] * p.evorisk_coef[(p.immunities_ids[c], strain_num)] * u[c] * sum(@views u[(strain_num*p.n_immunities+1):((strain_num+1)*p.n_immunities)])
+                #TODO: this is currently set to zero but needs to accommodate new strain evo
+                ids[c+(strain_num*p.n_immunities)+(p.n_immunities*sum(p.n_strains))] = (p.immunities_ids[c], ag.positions[a,:], a, s, true)
+            end
+        end
+    end
+
+    id = sample(ids, Weights(rates), 1)[1]
+    infecting_host_immunities_id = id[1]
+
+    parent_cluster = id[2]
+    parent_cluster_num = id[3]
+    parent_strain = id[4]
+    same_clusters = id[5]
+
+    infecting_host_immunities = [zeros(size(ag.positions)[2]) for _ in 1:sum(id[1] .> NAIVE)]
+    counter = 0
+    for i in 1:p.n_ag_clusters
+        if id[1][i] > 0
+            counter += 1
+            infecting_host_immunities[counter] = ag.positions[i, :]
+        end
+    end
+
+    return parent_strain, parent_cluster, parent_cluster_num, infecting_host_immunities, infecting_host_immunities_id, same_clusters
+end
+
+function mutantFromParent(parent_num::Int64, parent_cluster::Vector{Float64}, parent_cluster_num::Int64, immunities::Vector{Vector{Float64}}, same_clusters::Bool; distanceFunc::Function=(p) -> randexp(), distanceMetric=euclidean, max_attempts::Int64=100)
+    if same_clusters
+        return mutantStrainFromParent(), parent_cluster_num
+    else
+        return mutantAgFromParent(parent_cluster, immunities; distanceFunc=distanceFunc, distanceMetric=distanceMetric, max_attempts=max_attempts),-1
+    end
+end
+
+function mutantStrainFromParent()
+    return 0
+end
+
+function mutantAgFromParent(parent::Vector{Float64}, other_strains::Vector{Vector{Float64}}; distanceFunc::Function=(p) -> randexp(), distanceMetric=euclidean, max_attempts::Int64=100)
+    parent_distances = [distanceMetric(parent, s) for s in other_strains]
+    mutant = mutantAgFromParent(parent, distanceFunc=distanceFunc)
+    attempts = 0
+    println(parent_distances)
+    println(([distanceMetric(mutant, s) for s in other_strains], [distanceMetric(mutant, s) for s in other_strains] .< parent_distances))
+    while any([distanceMetric(mutant, s) for s in other_strains] .< parent_distances) && attempts < max_attempts
+        attempts += 1
+        println((attempts, [distanceMetric(mutant, s) for s in other_strains], [distanceMetric(mutant, s) for s in other_strains] .< parent_distances))
+        mutant = mutantAgFromParent(parent, distanceFunc=distanceFunc)
+    end
+
+    return mutant
+end
+
+function mutantAgFromParent(parent::Vector{Float64}; distanceFunc::Function=(p) -> randexp())
+    dimensions = length(parent)
+    angles = pi * rand(dimensions - 1)
+    sines = sin.(angles)
+    cosines = cos.(angles)
+    norm_coordinates = [cosines[1], [prod(sines[1:i-1]) * cosines[i] for i in 2:dimensions-1]..., prod(sines)]
+    mutation_vec = randexp() .* norm_coordinates
+
+    return parent .+ mutation_vec
 end

@@ -98,3 +98,18 @@ function antigenicMap(;
 
     return map
 end
+
+function copyAntigenicMap(p::AntigenicMap)
+    return antigenicMap(
+        positions=p.positions,
+        max_cross_immunity=p.max_cross_immunity,
+        K_cross_immunity=p.K_cross_immunity,
+        h_cross_immunity=p.h_cross_immunity,
+        max_imprinted=p.max_imprinted,
+        K_imprinted=p.K_imprinted,
+        h_imprinted=p.h_imprinted,
+        max_matured=p.max_matured,
+        K_matured=p.K_matured,
+        h_matured=p.h_matured,
+    )
+end

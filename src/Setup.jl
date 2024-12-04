@@ -1,6 +1,7 @@
 using Combinatorics
 
 const N_IMMUNE_STATES = 3
+#TODO: make version with only 2 compartments
 
 const NAIVE::Int64 = 0
 const IMPRINTED::Int64 = 1
@@ -21,19 +22,30 @@ end
     n_compartments::Int64
     immunities_ids::Vector{Vector{Int64}}
     immunities_dict::Dict{Vector{Int64},Int64}
-    immunities_list::Vector{Vector{Vector{Bool}}}
+    # immunities_list::Vector{Vector{Vector{Bool}}}
     transmission_rates::Vector{Vector{Float64}}
     recovery_rates::Vector{Vector{Float64}}
     imprinted_loss_rate::Float64
     matured_loss_rate::Float64
     frac_imprinted::Dict{Tuple{Vector{Int64},Int64},Float64}
     frac_matured::Dict{Tuple{Vector{Int64},Int64},Float64}
+    frac_imprinted_argument::Matrix{Float64}
+    frac_matured_argument::Matrix{Float64}
     immunity_coef::Dict{Tuple{Vector{Int64},Int64},Float64}
+    immunity_coef_argument::Matrix{Float64}
     evorisk_coef::Dict{Tuple{Vector{Int64},Int64},Float64}
+    evorisk_coef_argument::Array{Float64,3}
+    evorisk_by_immunity::Matrix{Float64}
+    mutantAgDistance::Function
     birth_rate_uninfected::Float64
     birth_rates_infected::Vector{Vector{Float64}}
     death_rate_uninfected::Float64
     death_rates_infected::Vector{Vector{Float64}}
+    evoRiskMutant::Function
+    transmissionMutant::Function
+    recoveryMutant::Function
+    birthMutant::Function
+    deathMutant::Function
 end
 
 function parameters(;
@@ -47,10 +59,17 @@ function parameters(;
     frac_matured::Matrix{Float64},
     immunity_coef::Matrix{Float64},
     evorisk_coef::Array{Float64,3},
+    evorisk_by_immunity::Matrix{Float64},
+    mutantAgDistance::Function,
     birth_rate_uninfected::Float64,
     birth_rates_infected::Vector{Vector{Float64}},
     death_rate_uninfected::Float64,
-    death_rates_infected::Vector{Vector{Float64}},)
+    death_rates_infected::Vector{Vector{Float64}},
+    evoRiskMutant::Function=(mut,par,p) -> p.evorisk_by_immunity[:,1],
+    transmissionMutant::Function=(mut,par,p) -> p.transmission_rates[1][1],
+    recoveryMutant::Function=(mut,par,p) -> p.recovery_rates[1][1],
+    birthMutant::Function=(mut,par,p) -> p.birth_rates_infected[1][1],
+    deathMutant::Function=(mut,par,p) -> p.death_rates_infected[1][1],)
 
     n_immunities = 3^n_ag_clusters # number of types of compartments, i.e. possible immune state combinations
     total_n_strains = sum(n_strains)
@@ -58,7 +77,7 @@ function parameters(;
 
     immunities_ids = reduce(vcat, collect(multiset_permutations(i, n_ag_clusters)) for i in with_replacement_combinations([NAIVE, IMPRINTED, MATURED], n_ag_clusters))
     immunities_dict = Dict{Vector{Int64},Int64}(zip(immunities_ids, collect(1:n_immunities)))
-    immunities_list = reduce(vcat, collect(multiset_permutations(i, n_ag_clusters)) for i in with_replacement_combinations([NAIVE_VEC, IMPRINTED_VEC, MATURED_VEC], n_ag_clusters))
+    # immunities_list = reduce(vcat, collect(multiset_permutations(i, n_ag_clusters)) for i in with_replacement_combinations([NAIVE_VEC, IMPRINTED_VEC, MATURED_VEC], n_ag_clusters))
 
     immunity_coef_by_state = Dict{Tuple{Vector{Int64},Int64},Float64}()
     frac_imprinted_by_state = Dict{Tuple{Vector{Int64},Int64},Float64}()
@@ -96,20 +115,57 @@ function parameters(;
         n_compartments=n_compartments,
         immunities_ids=immunities_ids,
         immunities_dict=immunities_dict,
-        immunities_list=immunities_list,
+        # immunities_list=immunities_list,
         transmission_rates=transmission_rates,
         recovery_rates=recovery_rates,
         imprinted_loss_rate=imprinted_loss_rate,
         matured_loss_rate=matured_loss_rate,
         frac_imprinted=frac_imprinted_by_state,
         frac_matured=frac_matured_by_state,
+        frac_imprinted_argument=frac_imprinted,
+        frac_matured_argument=frac_matured,
         immunity_coef=immunity_coef_by_state,
+        immunity_coef_argument=immunity_coef,
         evorisk_coef=evorisk_by_state,
+        evorisk_coef_argument=evorisk_coef,
+        evorisk_by_immunity=evorisk_by_immunity,
+        mutantAgDistance=mutantAgDistance,
         birth_rate_uninfected=birth_rate_uninfected,
         birth_rates_infected=birth_rates_infected,
         death_rate_uninfected=death_rate_uninfected,
         death_rates_infected=death_rates_infected,
+        evoRiskMutant=evoRiskMutant,
+        transmissionMutant=transmissionMutant,
+        recoveryMutant=recoveryMutant,
+        birthMutant=birthMutant,
+        deathMutant=deathMutant,
     )
 
     return params
+end
+
+function copyParams(p::ModelParameters)
+    return parameters(
+        n_ag_clusters=p.n_ag_clusters,
+        n_strains=p.n_strains,
+        transmission_rates=p.transmission_rates,
+        recovery_rates=p.recovery_rates,
+        imprinted_loss_rate=p.imprinted_loss_rate,
+        matured_loss_rate=p.matured_loss_rate,
+        frac_imprinted=p.frac_imprinted_argument,
+        frac_matured=p.frac_matured_argument,
+        immunity_coef=p.immunity_coef_argument,
+        evorisk_coef=p.evorisk_coef_argument,
+        evorisk_by_immunity=p.evorisk_by_immunity,
+        mutantAgDistance=p.mutantAgDistance,
+        birth_rate_uninfected=p.birth_rate_uninfected,
+        birth_rates_infected=p.birth_rates_infected,
+        death_rate_uninfected=p.death_rate_uninfected,
+        death_rates_infected=p.death_rates_infected,
+        evoRiskMutant=p.evoRiskMutant,
+        transmissionMutant=p.transmissionMutant,
+        recoveryMutant=p.recoveryMutant,
+        birthMutant=p.birthMutant,
+        deathMutant=p.deathMutant,
+    )
 end
